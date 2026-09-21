@@ -11,8 +11,12 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from portal import db
+
 app = FastAPI()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+db.init_db()
 
 PRODUCTS = {
     "SKU-1001": {"name": "Blue Widget", "price": "12.50"},
@@ -66,8 +70,21 @@ def order_submit(request: Request, sku: str = Form(), delivery_date: str = Form(
     product = PRODUCTS.get(sku)
     if product is None:
         return RedirectResponse("/products", status_code=303)
+    number = db.save_order(sku, product["name"], delivery_date)
     return templates.TemplateResponse(
         request,
         "confirmation.html",
-        {"sku": sku, "product": product, "delivery_date": delivery_date},
+        {
+            "sku": sku,
+            "product": product,
+            "delivery_date": delivery_date,
+            "order_number": number,
+        },
     )
+
+
+@app.get("/orders")
+def order_history(request: Request):
+    if not logged_in(request):
+        return RedirectResponse("/login", status_code=303)
+    return templates.TemplateResponse(request, "orders.html", {"orders": db.list_orders()})

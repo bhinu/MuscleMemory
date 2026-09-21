@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}All Orders - Acme Supply Co.{% endblock %}
+{% block content %}
+<h2>All Orders</h2>
+{% if orders %}
+<table>
+  <tr><th>Order</th><th>Product</th><th>SKU</th><th>Delivery date</th><th>Placed at (UTC)</th></tr>
+  {% for order in orders %}
+  <tr>
+    <td>{{ order.order_number }}</td>
+    <td>{{ order.product_name }}</td>
+    <td>{{ order.sku }}</td>
+    <td>{{ order.delivery_date }}</td>
+    <td>{{ order.placed_at }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>No orders yet.</p>
+{% endif %}
+<p><a href="/products">Back to products</a></p>
+{% endblock %}

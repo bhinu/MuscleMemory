@@ -4,9 +4,10 @@
 <h2>Order Confirmed</h2>
 <p>Thank you. Your order has been placed.</p>
 <table>
+  <tr><th>Order number</th><td>{{ order_number }}</td></tr>
   <tr><th>Product</th><td>{{ product.name }}</td></tr>
   <tr><th>SKU</th><td>{{ sku }}</td></tr>
   <tr><th>Delivery date</th><td>{{ delivery_date }}</td></tr>
 </table>
-<p><a href="/products">Back to products</a></p>
+<p><a href="/orders">View all orders</a> | <a href="/products">Back to products</a></p>
 {% endblock %}
