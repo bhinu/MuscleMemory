@@ -31,8 +31,6 @@ the next move, it stops and says so.
 the fix is recorded. Next time the agent hits the same wall, it checks memory
 before it asks the model.
 
-## Two design decisions worth the words
-
 ### Dangerous actions are never auto-retried
 
 Some actions are reversible and some aren't. Re-reading a page costs nothing.
