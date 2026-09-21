@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Sign In - Acme Supply Co.{% endblock %}
+{% block content %}
+<h2>Sign In</h2>
+<form method="post" action="/login">
+  <label for="username">Username</label>
+  <input id="username" name="username" type="text" required>
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" required>
+  <button type="submit">Sign In</button>
+</form>
+{% endblock %}

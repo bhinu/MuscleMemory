@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Products - Acme Supply Co.{% endblock %}
+{% block content %}
+<h2>Products</h2>
+<table>
+  <tr><th>SKU</th><th>Product</th><th>Price</th><th></th></tr>
+  {% for sku, product in products.items() %}
+  <tr>
+    <td>{{ sku }}</td>
+    <td>{{ product.name }}</td>
+    <td>${{ product.price }}</td>
+    <td><a href="/order/{{ sku }}">Order</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

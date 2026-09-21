@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Order Confirmed - Acme Supply Co.{% endblock %}
+{% block content %}
+<h2>Order Confirmed</h2>
+<p>Thank you. Your order has been placed.</p>
+<table>
+  <tr><th>Product</th><td>{{ product.name }}</td></tr>
+  <tr><th>SKU</th><td>{{ sku }}</td></tr>
+  <tr><th>Delivery date</th><td>{{ delivery_date }}</td></tr>
+</table>
+<p><a href="/products">Back to products</a></p>
+{% endblock %}

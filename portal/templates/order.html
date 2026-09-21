@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Order Details - Acme Supply Co.{% endblock %}
+{% block content %}
+<h2>Order Details</h2>
+<p>{{ product.name }} ({{ sku }}) - ${{ product.price }}</p>
+<form method="post" action="/order">
+  <input type="hidden" name="sku" value="{{ sku }}">
+  <label for="delivery_date">Delivery date</label>
+  <input id="delivery_date" name="delivery_date" type="date" required>
+  <button type="submit">Place Order</button>
+</form>
+{% endblock %}
