@@ -66,10 +66,3 @@ The goal is that outdated fixes get **detected**, not replayed.
 | Browser control | Playwright |
 | Storage | SQLite |
 | Agent decisions | OpenAI API |
-
-## Why I'm building it
-
-This is a portfolio project, and the point is to understand it deeply rather
-than to finish it quickly. Each piece gets built and explained before the next
-one starts. If you're reading the commit history, that's what the small commits
-are.
