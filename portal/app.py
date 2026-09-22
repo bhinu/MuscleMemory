@@ -5,6 +5,7 @@ Nothing is persisted and the login is not real security -- this site exists
 to be driven by a browser agent and broken on purpose.
 """
 
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
@@ -27,6 +28,17 @@ PRODUCTS = {
 
 def logged_in(request: Request) -> bool:
     return "session" in request.cookies
+
+
+def date_format(mutations: set[str]) -> tuple[str, str]:
+    """The delivery date field's (strptime pattern, label shown to the user).
+
+    Both come from one place so the form can never advertise a format the
+    parser disagrees with.
+    """
+    if "date_format_dmy" in mutations:
+        return "%d/%m/%Y", "DD/MM/YYYY"
+    return "%m/%d/%Y", "MM/DD/YYYY"
 
 
 @app.get("/")
@@ -60,10 +72,17 @@ def order_form(request: Request, sku: str):
     product = PRODUCTS.get(sku)
     if product is None:
         return RedirectResponse("/products", status_code=303)
+    mutations = chaos.active()
     return templates.TemplateResponse(
         request,
         "order.html",
-        {"sku": sku, "product": product, "mutations": chaos.active()},
+        {
+            "sku": sku,
+            "product": product,
+            "mutations": mutations,
+            "date_label": date_format(mutations)[1],
+            "error": None,
+        },
     )
 
 
@@ -74,14 +93,30 @@ def order_submit(request: Request, sku: str = Form(), delivery_date: str = Form(
     product = PRODUCTS.get(sku)
     if product is None:
         return RedirectResponse("/products", status_code=303)
-    number = db.save_order(sku, product["name"], delivery_date)
+    mutations = chaos.active()
+    pattern, date_label = date_format(mutations)
+    try:
+        iso_date = datetime.strptime(delivery_date, pattern).date().isoformat()
+    except ValueError:
+        return templates.TemplateResponse(
+            request,
+            "order.html",
+            {
+                "sku": sku,
+                "product": product,
+                "mutations": mutations,
+                "date_label": date_label,
+                "error": f"Enter the delivery date as {date_label}.",
+            },
+        )
+    number = db.save_order(sku, product["name"], iso_date)
     return templates.TemplateResponse(
         request,
         "confirmation.html",
         {
             "sku": sku,
             "product": product,
-            "delivery_date": delivery_date,
+            "delivery_date": iso_date,
             "order_number": number,
         },
     )

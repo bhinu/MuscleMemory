@@ -17,6 +17,11 @@ MUTATIONS = {
         "Order form: renames the submit button to 'Submit Purchase Request' and "
         "moves it above the delivery date field."
     ),
+    "date_format_dmy": (
+        "Order form: the delivery date field expects DD/MM/YYYY instead of "
+        "MM/DD/YYYY. Ambiguous dates are accepted and silently mean a "
+        "different day."
+    ),
 }
 
 

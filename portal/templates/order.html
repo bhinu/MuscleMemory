@@ -3,14 +3,16 @@
 {% block content %}
 <h2>Order Details</h2>
 <p>{{ product.name }} ({{ sku }}) - ${{ product.price }}</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
 {% set submit_moved = "submit_button_moved" in mutations %}
 <form method="post" action="/order">
   <input type="hidden" name="sku" value="{{ sku }}">
   {% if submit_moved %}
   <button type="submit">Submit Purchase Request</button>
   {% endif %}
-  <label for="delivery_date">Delivery date</label>
-  <input id="delivery_date" name="delivery_date" type="date" required>
+  <label for="delivery_date">Delivery date ({{ date_label }})</label>
+  <input id="delivery_date" name="delivery_date" type="text"
+         placeholder="{{ date_label }}" required>
   {% if not submit_moved %}
   <button type="submit">Place Order</button>
   {% endif %}
