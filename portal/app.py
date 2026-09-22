@@ -11,7 +11,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from portal import db
+from portal import chaos, db
 
 app = FastAPI()
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -60,7 +60,11 @@ def order_form(request: Request, sku: str):
     product = PRODUCTS.get(sku)
     if product is None:
         return RedirectResponse("/products", status_code=303)
-    return templates.TemplateResponse(request, "order.html", {"sku": sku, "product": product})
+    return templates.TemplateResponse(
+        request,
+        "order.html",
+        {"sku": sku, "product": product, "mutations": chaos.active()},
+    )
 
 
 @app.post("/order")
