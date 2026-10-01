@@ -1,5 +1,8 @@
 """The agent loop: look at the page, ask for one action, do it, repeat.
 
+When the model says stuck, a person gets the browser at the terminal. When
+they type resume, the agent carries on from wherever they left the page.
+
 Start the portal first:
     uvicorn portal.app:app
 
@@ -15,7 +18,7 @@ from dotenv import load_dotenv
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from agent import actions, brain, browser
+from agent import actions, brain, browser, human
 
 BASE_URL = os.environ.get("PORTAL_URL", "http://127.0.0.1:8000")
 MAX_STEPS = 12
@@ -36,7 +39,11 @@ def run(page, goal: str) -> str:
         if action.kind == actions.DONE:
             return "DONE"
         if action.kind == actions.STUCK:
-            return f"STUCK: {action.reason}"
+            takeover = human.take_over(page, action.reason)
+            history.extend(takeover.outcomes)
+            if takeover.aborted:
+                return f"STUCK: {action.reason}"
+            continue
 
         try:
             outcome = browser.execute(page, action)
