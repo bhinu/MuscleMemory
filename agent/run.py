@@ -1,7 +1,8 @@
 """The agent loop: look at the page, ask for one action, do it, repeat.
 
 When the model says stuck, a person gets the browser at the terminal. When
-they type resume, the agent carries on from wherever they left the page.
+they type resume, what they did is saved as a fix for that page (see
+memory/store.py) and the agent carries on from wherever they left it.
 
 Start the portal first:
     uvicorn portal.app:app
@@ -19,6 +20,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from agent import actions, brain, browser, human
+from memory import store
 
 BASE_URL = os.environ.get("PORTAL_URL", "http://127.0.0.1:8000")
 MAX_STEPS = 12
@@ -33,16 +35,23 @@ def run(page, goal: str) -> str:
     """Drive the page until the model says done or stuck, or we run out of steps."""
     history: list[str] = []
     for step in range(1, MAX_STEPS + 1):
-        action = brain.decide(goal, browser.snapshot(page), history)
+        snapshot = browser.snapshot(page)
+        action = brain.decide(goal, snapshot, history)
         print(f"[{step}] {action.kind} -- {action.reason}")
 
         if action.kind == actions.DONE:
             return "DONE"
         if action.kind == actions.STUCK:
+            # Read before the person touches anything: the fix belongs to the
+            # page as the agent found it, not wherever they leave it.
+            stuck_url = page.url
             takeover = human.take_over(page, action.reason)
             history.extend(takeover.outcomes)
             if takeover.aborted:
                 return f"STUCK: {action.reason}"
+            if takeover.steps:
+                fix_id = store.save_fix(stuck_url, goal, takeover.steps, snapshot)
+                print(f"     saved fix #{fix_id} for {store.page_key(stuck_url)}")
             continue
 
         try:
