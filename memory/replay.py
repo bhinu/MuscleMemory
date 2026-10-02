@@ -5,8 +5,11 @@ was saved for the same page *and* the same goal: a fix's steps carry values
 from the goal they were recorded under (a delivery date, a quantity), so
 replaying them for a different goal would type the wrong thing confidently.
 
-Replay stops at the first step that does not work. Whatever happened up to
-that point is reported, and the caller hands the page to a person.
+Before any step runs, the fix's landmarks are checked (see landmarks.py). If
+one is missing the page has changed since the fix was made: the fix is
+stale, nothing is touched, and the caller hands the page to a person.
+
+Past that check, replay still stops at the first step that does not work.
 """
 
 from dataclasses import dataclass, field
@@ -15,7 +18,7 @@ from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from agent import browser
-from memory import store
+from memory import landmarks, store
 
 
 @dataclass
@@ -25,6 +28,7 @@ class Replay:
     ok: bool
     outcomes: list[str] = field(default_factory=list)
     problem: str = ""
+    stale: bool = False  # refused up front: the page no longer matches the fix
 
 
 def find_fix(url: str, goal: str, skip: set[int] = frozenset()) -> store.Fix | None:
@@ -36,7 +40,18 @@ def find_fix(url: str, goal: str, skip: set[int] = frozenset()) -> store.Fix | N
 
 
 def replay(page: Page, fix: store.Fix) -> Replay:
-    """Carry out a fix's steps in order, stopping at the first that fails."""
+    """Check the fix still fits, then carry out its steps in order."""
+    gone = landmarks.missing(page, fix.landmarks)
+    if gone:
+        return Replay(
+            ok=False,
+            stale=True,
+            problem=(
+                f"fix #{fix.id} is out of date, so it was not replayed: "
+                f"no longer on the page: {', '.join(map(str, gone))}"
+            ),
+        )
+
     result = Replay(ok=True)
     for number, step in enumerate(fix.steps, start=1):
         try:
