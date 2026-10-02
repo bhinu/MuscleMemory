@@ -47,7 +47,7 @@ def unstick(page, goal: str, why: str, snapshot: str, history: list[str], tried:
     fix = replay.find_fix(stuck_url, goal, skip=tried)
     if fix is not None:
         tried.add(fix.id)
-        print(f"     replaying fix #{fix.id} from memory")
+        print(f"     trying fix #{fix.id} from memory")
         result = replay.replay(page, fix)
         for outcome in result.outcomes:
             print(f"     {outcome}")

@@ -7,8 +7,9 @@ A fix is stored with:
   page      -- which page it belongs to, as a pattern (see page_key)
   goal      -- what the agent was trying to do at the time
   steps     -- the person's actions, as JSON
-  snapshot  -- the page as it looked when the agent got stuck, kept so later
-               code can tell whether the page has changed since
+  snapshot  -- the page as it looked when the agent got stuck
+  landmarks -- what on that page the fix depends on, chosen from the
+               snapshot when the fix is saved (see landmarks.py)
 """
 
 import json
@@ -20,6 +21,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from agent import actions
+from memory.landmarks import Landmark, choose
 
 DB_PATH = Path(__file__).resolve().parent.parent / "memory.db"
 
@@ -30,6 +32,7 @@ CREATE TABLE IF NOT EXISTS fixes (
     goal TEXT NOT NULL,
     steps TEXT NOT NULL,
     snapshot TEXT NOT NULL,
+    landmarks TEXT NOT NULL,
     created_at TEXT NOT NULL
 )
 """
@@ -46,6 +49,7 @@ class Fix:
     goal: str
     steps: list[actions.Action]
     snapshot: str
+    landmarks: list[Landmark]
     created_at: str
 
 
@@ -78,6 +82,7 @@ def _to_fix(row: sqlite3.Row) -> Fix:
         goal=row["goal"],
         steps=[actions.from_payload(step) for step in json.loads(row["steps"])],
         snapshot=row["snapshot"],
+        landmarks=[Landmark(**m) for m in json.loads(row["landmarks"])],
         created_at=row["created_at"],
     )
 
@@ -90,13 +95,14 @@ def save_fix(url: str, goal: str, steps: list[actions.Action], snapshot: str) ->
     conn = _connect()
     try:
         cursor = conn.execute(
-            "INSERT INTO fixes (page, goal, steps, snapshot, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO fixes (page, goal, steps, snapshot, landmarks, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
             (
                 page_key(url),
                 goal,
                 json.dumps([asdict(step) for step in steps]),
                 snapshot,
+                json.dumps([asdict(m) for m in choose(snapshot, steps)]),
                 created_at,
             ),
         )
