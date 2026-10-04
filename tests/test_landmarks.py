@@ -50,6 +50,14 @@ def test_a_target_that_appears_later_is_not_a_landmark():
     assert Landmark("button", "Confirm") not in choose(SNAPSHOT, [CLICK, later])
 
 
+def yes(question):
+    return True
+
+
+def never_asked(question):
+    raise AssertionError(f"should not have been asked: {question}")
+
+
 @pytest.fixture
 def page():
     sync_api = pytest.importorskip("playwright.sync_api")
@@ -83,7 +91,8 @@ def temp_db(tmp_path, monkeypatch):
 def test_a_fix_on_an_unchanged_page_is_replayed(page, temp_db):
     page.set_content(ORDER_FORM.format(fmt="MM/DD/YYYY"))
     store.save_fix("http://x/order/SKU-1002", "goal", [FILL, CLICK], SNAPSHOT)
-    result = replay.replay(page, replay.find_fix("http://x/order/SKU-1002", "goal"))
+    fix = replay.find_fix("http://x/order/SKU-1002", "goal")
+    result = replay.replay(page, fix, confirm=yes)
     assert result.ok and not result.stale
 
 
@@ -92,7 +101,8 @@ def test_a_stale_fix_touches_nothing(page, temp_db):
     # remembered 10/15/2026 here would be wrong, so the fix must not start.
     page.set_content(ORDER_FORM.format(fmt="DD/MM/YYYY"))
     store.save_fix("http://x/order/SKU-1002", "goal", [FILL, CLICK], SNAPSHOT)
-    result = replay.replay(page, replay.find_fix("http://x/order/SKU-1002", "goal"))
+    fix = replay.find_fix("http://x/order/SKU-1002", "goal")
+    result = replay.replay(page, fix, confirm=never_asked)
 
     assert not result.ok and result.stale
     assert result.outcomes == []

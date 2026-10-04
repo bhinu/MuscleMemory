@@ -10,6 +10,8 @@ A fix is stored with:
   snapshot  -- the page as it looked when the agent got stuck
   landmarks -- what on that page the fix depends on, chosen from the
                snapshot when the fix is saved (see landmarks.py)
+  risky     -- indexes of steps replay must not take without a person
+               (see risk.py)
 """
 
 import json
@@ -22,6 +24,7 @@ from urllib.parse import urlsplit
 
 from agent import actions
 from memory.landmarks import Landmark, choose
+from memory.risk import risky_steps
 
 DB_PATH = Path(__file__).resolve().parent.parent / "memory.db"
 
@@ -33,6 +36,7 @@ CREATE TABLE IF NOT EXISTS fixes (
     steps TEXT NOT NULL,
     snapshot TEXT NOT NULL,
     landmarks TEXT NOT NULL,
+    risky TEXT NOT NULL,
     created_at TEXT NOT NULL
 )
 """
@@ -50,6 +54,7 @@ class Fix:
     steps: list[actions.Action]
     snapshot: str
     landmarks: list[Landmark]
+    risky: list[int]
     created_at: str
 
 
@@ -83,26 +88,38 @@ def _to_fix(row: sqlite3.Row) -> Fix:
         steps=[actions.from_payload(step) for step in json.loads(row["steps"])],
         snapshot=row["snapshot"],
         landmarks=[Landmark(**m) for m in json.loads(row["landmarks"])],
+        risky=json.loads(row["risky"]),
         created_at=row["created_at"],
     )
 
 
-def save_fix(url: str, goal: str, steps: list[actions.Action], snapshot: str) -> int:
-    """Store one fix and return its id."""
+def save_fix(
+    url: str,
+    goal: str,
+    steps: list[actions.Action],
+    snapshot: str,
+    marked_risky: set[int] = frozenset(),
+) -> int:
+    """Store one fix and return its id.
+
+    marked_risky holds indexes of steps the person flagged as risky, on top
+    of the ones risk.py recognises by itself.
+    """
     if not steps:
         raise ValueError("a fix needs at least one step")
     created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn = _connect()
     try:
         cursor = conn.execute(
-            "INSERT INTO fixes (page, goal, steps, snapshot, landmarks, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO fixes (page, goal, steps, snapshot, landmarks, risky, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 page_key(url),
                 goal,
                 json.dumps([asdict(step) for step in steps]),
                 snapshot,
                 json.dumps([asdict(m) for m in choose(snapshot, steps)]),
+                json.dumps(risky_steps(steps, marked_risky)),
                 created_at,
             ),
         )

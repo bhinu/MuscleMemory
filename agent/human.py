@@ -6,6 +6,8 @@ accessibility snapshot the model saw:
     click button "Place Order"
     fill textbox "Delivery date (MM/DD/YYYY)" 10/15/2026
     look        -- show the page again
+    risky       -- mark the step you just took as one a replay must not
+                   take without asking (placing an order is caught anyway)
     resume      -- give control back to the agent
     abort       -- end the run
 
@@ -23,11 +25,13 @@ from agent import actions, browser
 
 RESUME = "resume"
 ABORT = "abort"
+RISKY = "risky"
 
 HELP = """Commands:
   click <role> "<name>"
   fill <role> "<name>" <value>
   look     show the page again
+  risky    mark your last step as never to be replayed without asking
   resume   hand control back to the agent
   abort    end the run"""
 
@@ -38,11 +42,12 @@ class Takeover:
 
     steps: list[actions.Action] = field(default_factory=list)
     outcomes: list[str] = field(default_factory=list)
+    marked_risky: set[int] = field(default_factory=set)  # indexes into steps
     aborted: bool = False
 
 
 def parse(line: str) -> actions.Action | str:
-    """Turn one typed line into an Action, or RESUME / ABORT.
+    """Turn one typed line into an Action, or RESUME / ABORT / RISKY.
 
     Raises ValueError with a message meant for the person at the keyboard.
     """
@@ -54,7 +59,7 @@ def parse(line: str) -> actions.Action | str:
         raise ValueError("type a command, or 'help'")
     verb, args = words[0].lower(), words[1:]
 
-    if verb in (RESUME, ABORT) and not args:
+    if verb in (RESUME, ABORT, RISKY) and not args:
         return verb
     if verb == actions.CLICK and len(args) == 2:
         payload = {"kind": actions.CLICK, "role": args[0], "name": args[1]}
@@ -101,6 +106,13 @@ def take_over(page: Page, why: str, read=input) -> Takeover:
             return result
         if command == RESUME:
             return result
+        if command == RISKY:
+            if not result.steps:
+                print("  nothing to mark yet -- take a step first")
+            else:
+                result.marked_risky.add(len(result.steps) - 1)
+                print(f"  marked risky: {result.outcomes[-1].removeprefix('a person ')}")
+            continue
 
         try:
             outcome = browser.execute(page, command)
@@ -110,3 +122,12 @@ def take_over(page: Page, why: str, read=input) -> Takeover:
         print(f"  {outcome}")
         result.steps.append(command)
         result.outcomes.append(f"a person {outcome}")
+
+
+def confirm(question: str, read=input) -> bool:
+    """Ask a yes/no question. Anything but yes is no, and so is no terminal."""
+    try:
+        answer = read(f"\n{question} [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")

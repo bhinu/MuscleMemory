@@ -12,6 +12,14 @@ CLICK = actions.Action(kind="click", role="button", name="Submit Purchase Reques
                        reason="done by a person")
 
 
+def yes(question):
+    return True
+
+
+def never_asked(question):
+    raise AssertionError(f"should not have been asked: {question}")
+
+
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "DB_PATH", tmp_path / "memory.db")
@@ -51,7 +59,7 @@ def test_replay_runs_every_step(page):
         '<button onclick="this.textContent=\'Sent\'">Submit Purchase Request</button>'
     )
     fix_id = store.save_fix(URL, "goal", [FILL, CLICK], "")
-    result = replay.replay(page, replay.find_fix(URL, "goal"))
+    result = replay.replay(page, replay.find_fix(URL, "goal"), confirm=yes)
 
     assert result.ok
     assert len(result.outcomes) == 2
@@ -68,7 +76,7 @@ def test_replay_stops_at_the_first_step_that_fails(page):
         '<button onclick="this.textContent=\'Sent\'">Submit Purchase Request</button>'
     )
     store.save_fix(URL, "goal", [FILL, CLICK], "")
-    result = replay.replay(page, replay.find_fix(URL, "goal"))
+    result = replay.replay(page, replay.find_fix(URL, "goal"), confirm=never_asked)
 
     assert not result.ok
     assert result.outcomes == []
