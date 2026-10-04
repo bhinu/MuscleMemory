@@ -48,9 +48,9 @@ def unstick(page, goal: str, why: str, snapshot: str, history: list[str], tried:
     if fix is not None:
         tried.add(fix.id)
         print(f"     trying fix #{fix.id} from memory")
-        result = replay.replay(page, fix)
-        for outcome in result.outcomes:
-            print(f"     {outcome}")
+        result = replay.replay(
+            page, fix, confirm=human.confirm, report=lambda line: print(f"     {line}")
+        )
         history.extend(result.outcomes)
         if result.ok:
             return True
@@ -62,7 +62,9 @@ def unstick(page, goal: str, why: str, snapshot: str, history: list[str], tried:
     if takeover.aborted:
         return False
     if takeover.steps:
-        fix_id = store.save_fix(stuck_url, goal, takeover.steps, snapshot)
+        fix_id = store.save_fix(
+            stuck_url, goal, takeover.steps, snapshot, takeover.marked_risky
+        )
         print(f"     saved fix #{fix_id} for {store.page_key(stuck_url)}")
     return True
 
