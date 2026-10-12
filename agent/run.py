@@ -6,6 +6,10 @@ it fails, a person gets the browser at the terminal. When they type resume,
 what they did is saved as a fix (memory/store.py) and the agent carries on
 from wherever they left it.
 
+The model saying done does not end the story. The orders table is read before
+and after the run, and the run only counts as a success if exactly the order
+the goal asked for appeared in between (agent/verify.py).
+
 Start the portal first:
     uvicorn portal.app:app
 
@@ -16,21 +20,19 @@ Then:
 
 import os
 import sys
+from datetime import date
 
 from dotenv import load_dotenv
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from agent import actions, brain, browser, human
+from agent import actions, brain, browser, human, verify
+from agent.goal import Goal
 from memory import replay, store
 
 BASE_URL = os.environ.get("PORTAL_URL", "http://127.0.0.1:8000")
 MAX_STEPS = 12
-GOAL = (
-    "Sign in with username 'buyer' and password 'hunter2'. Then order the "
-    "product with SKU-1002 (Red Widget) for delivery on 10/15/2026, and "
-    "confirm the order was placed."
-)
+GOAL = Goal(sku="SKU-1002", product_name="Red Widget", delivery_date=date(2026, 10, 15))
 
 
 def unstick(page, goal: str, why: str, snapshot: str, history: list[str], tried: set[int]) -> bool:
@@ -99,15 +101,20 @@ def main() -> int:
     load_dotenv()
     with sync_playwright() as p:
         browser_instance = p.chromium.launch(headless=not os.environ.get("HEADED"))
-        page = browser_instance.new_page()
-        page.set_default_timeout(5000)
-        page.goto(f"{BASE_URL}/login")
         try:
-            result = run(page, GOAL)
+            before = verify.read_orders(browser_instance, BASE_URL)
+            page = browser_instance.new_page()
+            page.set_default_timeout(5000)
+            page.goto(f"{BASE_URL}/login")
+            result = run(page, GOAL.sentence())
+            # Checked however the run ended: a run that got stuck or gave up
+            # may still have placed an order on the way.
+            after = verify.read_orders(browser_instance, BASE_URL)
         finally:
             browser_instance.close()
-    print(f"\n{result}")
-    return 0 if result == "DONE" else 1
+    verdict = verify.check(before, after, GOAL)
+    print(f"\n{result}\norders: {verdict}")
+    return 0 if result == "DONE" and verdict.status == verify.VERIFIED else 1
 
 
 if __name__ == "__main__":
