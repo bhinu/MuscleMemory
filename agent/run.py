@@ -106,9 +106,9 @@ def consequential_click(
 ) -> safety.Outcome:
     """Make the model's one consequential click, and find out what it did.
 
-    Every path out of here that is not confirmed or nothing_placed is
-    unknown, and the caller halts on unknown: nothing in this function
-    hands the click back to the model.
+    The caller halts on unknown. On not_there and nothing_placed it goes to
+    a saved fix or a person. Nothing in this function hands a click that
+    was made back to the model.
     """
     target = f"{action.role} {action.name!r}"
     if budget.spent:
@@ -117,6 +117,13 @@ def consequential_click(
             f"the model tried to click {target}, but {budget.spent_on} earlier in "
             f"this run, and a second such click could place a second order",
         )
+    if not browser.present(page, action):
+        # Checked before the click is spent: a button that is not there was
+        # never pressed, so this is a wrong name, not an uncertain order.
+        outcome = f"FAILED: no {target} on this page"
+        print(f"     {outcome}")
+        history.append(outcome)
+        return safety.Outcome(safety.NOT_THERE, f"there is no {target} on this page")
     before = read_orders()
     if before.problem:
         # Not clicked at all: a click whose result could not be checked
@@ -165,6 +172,11 @@ def run(page, goal: str, read_orders: Callable[[], verify.Reading]) -> str:
             verdict = consequential_click(page, action, budget, read_orders, history)
             if verdict.status == safety.UNKNOWN:
                 return f"HALTED: {verdict.reason}"
+            if verdict.status == safety.NOT_THERE:
+                # The page is as the model saw it, so the snapshot from the
+                # top of this step is still the right one to save a fix with.
+                if not unstick(page, goal, verdict.reason, snapshot, history, tried, budget):
+                    return f"STUCK: {verdict.reason}"
             if verdict.status == safety.NOTHING_PLACED:
                 # Nothing is at stake yet, so this is an ordinary stuck
                 # point on the page the click led to -- but not one the

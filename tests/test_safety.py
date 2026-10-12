@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent import actions, human, run, safety
+from agent import actions, human, run, safety, verify
 from agent.verify import Order, Reading
 from memory import store
 
@@ -126,12 +126,39 @@ def test_a_confirmed_click_lets_the_run_finish(page, monkeypatch):
 
 
 def test_a_click_that_times_out_halts_and_is_not_offered_to_the_model_again(page, monkeypatch):
-    missing = actions.Action(kind="click", role="button", name="Submit Purchase Request")
-    asked = model(monkeypatch, missing, missing, DONE)
+    # The button is there but never becomes clickable, so the click is
+    # attempted and runs out of time.
+    page.set_content(FORM.replace('<button type="button" onclick="window.placed', '<button disabled x="'))
+    asked = model(monkeypatch, PLACE, PLACE, DONE)
     nobody(monkeypatch)
     result = run.run(page, "goal", orders(Reading([OLD])))
     assert result.startswith("HALTED: the click timed out")
-    assert asked == [missing]
+    assert asked == [PLACE]
+
+
+def test_a_button_that_is_not_there_is_not_clicked_and_does_not_use_the_click(page):
+    renamed = actions.Action(kind="click", role="button", name="Submit Purchase Request")
+    budget, history = safety.Budget(), []
+    verdict = run.consequential_click(page, renamed, budget, orders(), history)  # table never read
+    assert verdict.status == safety.NOT_THERE
+    assert not budget.spent
+    assert history == ["FAILED: no button 'Submit Purchase Request' on this page"]
+
+
+def test_a_button_that_is_not_there_goes_to_a_person_and_the_model_can_still_submit(page, monkeypatch):
+    renamed = actions.Action(kind="click", role="button", name="Submit Purchase Request")
+    model(monkeypatch, renamed, PLACE, DONE)
+    person(monkeypatch, 'fill textbox "Delivery date" 10/15/2026', "resume")
+    assert run.run(page, "goal", orders(Reading([OLD]), Reading([NEW, OLD]))) == "DONE"
+    assert presses(page, "placed") == 1
+
+
+def test_a_button_that_is_not_there_and_the_person_aborts_is_stuck(page, monkeypatch):
+    renamed = actions.Action(kind="click", role="button", name="Submit Purchase Request")
+    model(monkeypatch, renamed, DONE)
+    person(monkeypatch, "abort")
+    result = run.run(page, "goal", orders())
+    assert result == "STUCK: there is no button 'Submit Purchase Request' on this page"
 
 
 def test_two_orders_from_one_click_halts(page, monkeypatch):
@@ -225,3 +252,53 @@ def test_an_ordinary_failed_click_still_goes_back_to_the_model(page, monkeypatch
     nobody(monkeypatch)
     assert run.run(page, "goal", orders()) == "DONE"
     assert asked == [nowhere, DONE]
+
+
+# --- against the real portal, with the submit button renamed ------------------
+
+
+def test_submit_button_moved_is_fixed_once_then_replayed_with_one_order_each_time(
+    browser, portal, monkeypatch
+):
+    base_url, set_mutations = portal
+    set_mutations("submit_button_moved")
+    goal = "order SKU-1002 for 10/15/2026"
+    fill = actions.Action(
+        kind="fill", role="textbox", name="Delivery date (MM/DD/YYYY)", value="10/15/2026"
+    )
+    read_orders = lambda: verify.read_orders(browser, base_url)
+
+    def order_form():
+        context = browser.new_context()
+        context.add_cookies([{"name": "session", "value": "buyer", "url": base_url}])
+        page = context.new_page()
+        page.set_default_timeout(2000)
+        page.goto(f"{base_url}/order/SKU-1002")
+        return page
+
+    # Night one: the model asks for the old button name. It is not there, so
+    # nothing is clicked and a person presses the renamed one.
+    spent_when_called = []
+    real_unstick = run.unstick
+
+    def watching_unstick(page, goal, why, snapshot, history, tried, budget):
+        spent_when_called.append(budget.spent)
+        return real_unstick(page, goal, why, snapshot, history, tried, budget)
+
+    monkeypatch.setattr(run, "unstick", watching_unstick)
+    model(monkeypatch, fill, PLACE, DONE)
+    person(monkeypatch, 'click button "Submit Purchase Request"', "resume")
+    assert run.run(order_form(), goal, read_orders) == "DONE"
+    assert spent_when_called == [False]
+    assert len(read_orders().orders) == 1
+
+    # Night two: same wall, nobody typing. The saved fix is replayed, and
+    # its risky step waits for a yes.
+    asked_to_approve = []
+    monkeypatch.setattr(run.human, "confirm", lambda q: asked_to_approve.append(q) or True)
+    model(monkeypatch, fill, PLACE, DONE)
+    nobody(monkeypatch)
+    assert run.run(order_form(), goal, read_orders) == "DONE"
+    assert len(asked_to_approve) == 1
+    placed = read_orders().orders
+    assert [(o.sku, o.delivery_date) for o in placed] == [("SKU-1002", "2026-10-15")] * 2

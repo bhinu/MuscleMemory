@@ -15,6 +15,15 @@ def snapshot(page: Page) -> str:
     return page.locator("body").aria_snapshot()
 
 
+def present(page: Page, action: Action) -> bool:
+    """Is the control this action is aimed at on the page right now?
+
+    Matched the same way execute finds it, so "present" means a click or
+    fill aimed here would land on something.
+    """
+    return page.get_by_role(action.role, name=action.name, exact=True).count() > 0
+
+
 def execute(page: Page, action: Action) -> str:
     """Carry out one action and return a short line describing what happened.
 

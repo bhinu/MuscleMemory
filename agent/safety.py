@@ -7,13 +7,18 @@ most once, and the orders table is read on either side of it to see what it
 actually did:
 
   confirmed      -- exactly one new order. Carry on.
+  not_there      -- the button the model named is not on the page, so no
+                    click was made and the model's one click is not used up.
+                    An ordinary stuck point: a saved fix or a person can
+                    find the button that is there.
   nothing_placed -- the click went through and no order appeared (a rejected
                     date, a new confirm step). Nothing is at stake yet, so a
                     person can finish the job; the model still may not press
                     such a button again.
-  unknown        -- the click timed out, more than one order appeared, or the
-                    table could not be read. Nobody knows what state the
-                    portal is in, so the run halts without touching it again.
+  unknown        -- the button was there and the click timed out, more than
+                    one order appeared, or the table could not be read.
+                    Nobody knows what state the portal is in, so the run
+                    halts without touching it again.
 
 Which clicks count is decided by memory/risk.py, so "risky" means one thing
 whether the model is clicking or a saved fix is being replayed.
@@ -26,6 +31,7 @@ from agent.verify import Reading
 from memory.risk import looks_risky
 
 CONFIRMED = "confirmed"
+NOT_THERE = "not_there"
 NOTHING_PLACED = "nothing_placed"
 UNKNOWN = "unknown"
 
