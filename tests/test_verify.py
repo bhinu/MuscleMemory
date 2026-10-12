@@ -43,11 +43,13 @@ def test_one_new_order_matching_the_goal_is_verified():
     result = verify.check(Reading([OLD]), Reading([RIGHT, OLD]), GOAL)
     assert result.status == verify.VERIFIED
     assert result.detail == "ORD-00002"
+    assert result.new_order_count == 1
 
 
 def test_no_new_order_is_missing_even_if_an_old_one_matches():
     assert verify.check(Reading([OLD]), Reading([OLD]), GOAL).status == verify.MISSING
     assert verify.check(Reading(), Reading(), GOAL).status == verify.MISSING
+    assert verify.check(Reading([OLD]), Reading([OLD]), GOAL).new_order_count == 0
 
 
 def test_day_and_month_swapped_is_wrong_details():
@@ -70,6 +72,7 @@ def test_the_right_order_twice_is_duplicate():
     result = verify.check(Reading([OLD]), Reading([again, RIGHT, OLD]), GOAL)
     assert result.status == verify.DUPLICATE
     assert "2 times" in result.detail
+    assert result.new_order_count == 2
 
 
 def test_a_wrong_order_beside_a_right_one_is_wrong_details_not_duplicate():
@@ -79,6 +82,14 @@ def test_a_wrong_order_beside_a_right_one_is_wrong_details_not_duplicate():
     assert "ORD-00003" in result.detail and "ORD-00002" not in result.detail
 
 
+def test_a_double_submit_is_still_counted_when_the_details_are_wrong():
+    # Mixed case: the status says wrong_details, the count says two orders.
+    wrong = Order("ORD-00003", "SKU-1002", "2026-10-16")
+    result = verify.check(Reading([OLD]), Reading([wrong, RIGHT, OLD]), GOAL)
+    assert result.status == verify.WRONG_DETAILS
+    assert result.new_order_count == 2
+
+
 def test_an_unreadable_table_is_unverifiable_with_the_reason():
     broken = Reading(problem="portal is down")
     before = verify.check(broken, Reading([RIGHT]), GOAL)
@@ -86,6 +97,7 @@ def test_an_unreadable_table_is_unverifiable_with_the_reason():
     assert before.status == after.status == verify.UNVERIFIABLE
     assert "before the run: portal is down" in before.detail
     assert "after the run: portal is down" in after.detail
+    assert before.new_order_count is None and after.new_order_count is None
 
 
 def test_a_verification_prints_as_status_and_detail():

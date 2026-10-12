@@ -53,8 +53,16 @@ class Reading:
 
 @dataclass(frozen=True)
 class Verification:
+    """The verdict on a run.
+
+    new_order_count is how many orders appeared during the run, whatever
+    the status: more than one is a double submit even when the details are
+    also wrong. It is None when unverifiable, because then it is not known.
+    """
+
     status: str
     detail: str = ""
+    new_order_count: int | None = None
 
     def __str__(self) -> str:
         return f"{self.status}: {self.detail}" if self.detail else self.status
@@ -142,12 +150,12 @@ def check(before: Reading, after: Reading, goal: Goal) -> Verification:
     already_there = {order.number for order in before.orders}
     new = [order for order in after.orders if order.number not in already_there]
     if not new:
-        return Verification(MISSING, "no new order in the orders table")
+        return Verification(MISSING, "no new order in the orders table", 0)
 
     wrong = [f"{order.number}: {diff}" for order in new if (diff := _differences(order, goal))]
     if wrong:
-        return Verification(WRONG_DETAILS, " | ".join(wrong))
+        return Verification(WRONG_DETAILS, " | ".join(wrong), len(new))
     numbers = ", ".join(sorted(order.number for order in new))
     if len(new) > 1:
-        return Verification(DUPLICATE, f"the order was placed {len(new)} times: {numbers}")
-    return Verification(VERIFIED, numbers)
+        return Verification(DUPLICATE, f"the order was placed {len(new)} times: {numbers}", len(new))
+    return Verification(VERIFIED, numbers, 1)
