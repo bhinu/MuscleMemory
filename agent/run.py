@@ -10,6 +10,11 @@ The model saying done does not end the story. The orders table is read before
 and after the run, and the run only counts as a success if exactly the order
 the goal asked for appeared in between (agent/verify.py).
 
+A click that could place an order is treated differently from every other
+action: the model gets one per run, and what it did is checked against the
+orders table straight away (agent/safety.py). If that cannot be established,
+the run halts rather than letting anything press the button again.
+
 Start the portal first:
     uvicorn portal.app:app
 
@@ -23,10 +28,12 @@ import sys
 from datetime import date
 
 from dotenv import load_dotenv
+from collections.abc import Callable
+
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from agent import actions, brain, browser, human, verify
+from agent import actions, brain, browser, human, safety, verify
 from agent.goal import Goal
 from memory import replay, store
 
@@ -35,12 +42,23 @@ MAX_STEPS = 12
 GOAL = Goal(sku="SKU-1002", product_name="Red Widget", delivery_date=date(2026, 10, 15))
 
 
-def unstick(page, goal: str, why: str, snapshot: str, history: list[str], tried: set[int]) -> bool:
+def unstick(
+    page,
+    goal: str,
+    why: str,
+    snapshot: str,
+    history: list[str],
+    tried: set[int],
+    budget: safety.Budget,
+) -> bool:
     """Get past a stuck point: a saved fix if one fits, otherwise a person.
 
     Returns False if the person aborted. tried holds fixes already replayed
     this run; one that did not get the agent moving the first time is not
     replayed again, or a bad fix would loop until MAX_STEPS.
+
+    A risky step taken here, by the fix or by the person, uses up budget:
+    they may finish a submission, and the model may not submit after them.
     """
     # Read before anything touches the page: a fix belongs to the page as
     # the agent found it, not wherever replay or a person leaves it.
@@ -54,6 +72,11 @@ def unstick(page, goal: str, why: str, snapshot: str, history: list[str], tried:
             page, fix, confirm=human.confirm, report=lambda line: print(f"     {line}")
         )
         history.extend(result.outcomes)
+        # replay records one outcome per step it carried out, in order, so
+        # the steps it took are the first len(outcomes) of the fix.
+        for index in fix.risky:
+            if index < len(result.outcomes):
+                budget.spend(f"fix #{fix.id}", fix.steps[index])
         if result.ok:
             return True
         print(f"     {result.problem}")
@@ -61,6 +84,9 @@ def unstick(page, goal: str, why: str, snapshot: str, history: list[str], tried:
 
     takeover = human.take_over(page, why)
     history.extend(takeover.outcomes)
+    for index, step in enumerate(takeover.steps):
+        if safety.is_consequential(step) or index in takeover.marked_risky:
+            budget.spend("a person", step)
     if takeover.aborted:
         return False
     if takeover.steps:
@@ -71,10 +97,58 @@ def unstick(page, goal: str, why: str, snapshot: str, history: list[str], tried:
     return True
 
 
-def run(page, goal: str) -> str:
-    """Drive the page until the model says done or stuck, or we run out of steps."""
+def consequential_click(
+    page,
+    action: actions.Action,
+    budget: safety.Budget,
+    read_orders: Callable[[], verify.Reading],
+    history: list[str],
+) -> safety.Outcome:
+    """Make the model's one consequential click, and find out what it did.
+
+    Every path out of here that is not confirmed or nothing_placed is
+    unknown, and the caller halts on unknown: nothing in this function
+    hands the click back to the model.
+    """
+    target = f"{action.role} {action.name!r}"
+    if budget.spent:
+        return safety.Outcome(
+            safety.UNKNOWN,
+            f"the model tried to click {target}, but {budget.spent_on} earlier in "
+            f"this run, and a second such click could place a second order",
+        )
+    before = read_orders()
+    if before.problem:
+        # Not clicked at all: a click whose result could not be checked
+        # afterwards is not worth making.
+        return safety.Outcome(
+            safety.UNKNOWN,
+            f"did not click {target}: could not read the orders table first: {before.problem}",
+        )
+
+    budget.spend("the model", action)
+    try:
+        outcome = browser.execute(page, action)
+        timed_out = False
+    except PlaywrightTimeoutError:
+        outcome = f"FAILED: clicking {target} timed out"
+        timed_out = True
+    verdict = safety.judge(before, verify.Reading() if timed_out else read_orders(), timed_out)
+    outcome = f"{outcome} -- {verdict.reason}"
+    print(f"     {outcome}")
+    history.append(outcome)
+    return verdict
+
+
+def run(page, goal: str, read_orders: Callable[[], verify.Reading]) -> str:
+    """Drive the page until the model says done or stuck, or we run out of steps.
+
+    read_orders looks at the orders table right now. It is passed in rather
+    than built here so the loop can be tested without a portal.
+    """
     history: list[str] = []
     tried: set[int] = set()
+    budget = safety.Budget()
     for step in range(1, MAX_STEPS + 1):
         snapshot = browser.snapshot(page)
         action = brain.decide(goal, snapshot, history)
@@ -83,8 +157,21 @@ def run(page, goal: str) -> str:
         if action.kind == actions.DONE:
             return "DONE"
         if action.kind == actions.STUCK:
-            if not unstick(page, goal, action.reason, snapshot, history, tried):
+            if not unstick(page, goal, action.reason, snapshot, history, tried, budget):
                 return f"STUCK: {action.reason}"
+            continue
+
+        if safety.is_consequential(action):
+            verdict = consequential_click(page, action, budget, read_orders, history)
+            if verdict.status == safety.UNKNOWN:
+                return f"HALTED: {verdict.reason}"
+            if verdict.status == safety.NOTHING_PLACED:
+                # Nothing is at stake yet, so this is an ordinary stuck
+                # point on the page the click led to -- but not one the
+                # model gets to click its way out of.
+                why = f"clicked {action.role} {action.name!r} and no order was placed"
+                if not unstick(page, goal, why, browser.snapshot(page), history, tried, budget):
+                    return f"STUCK: {why}"
             continue
 
         try:
@@ -106,7 +193,9 @@ def main() -> int:
             page = browser_instance.new_page()
             page.set_default_timeout(5000)
             page.goto(f"{BASE_URL}/login")
-            result = run(page, GOAL.sentence())
+            result = run(
+                page, GOAL.sentence(), lambda: verify.read_orders(browser_instance, BASE_URL)
+            )
             # Checked however the run ended: a run that got stuck or gave up
             # may still have placed an order on the way.
             after = verify.read_orders(browser_instance, BASE_URL)
@@ -114,6 +203,8 @@ def main() -> int:
             browser_instance.close()
     verdict = verify.check(before, after, GOAL)
     print(f"\n{result}\norders: {verdict}")
+    if result.startswith("HALTED"):
+        print("A person needs to look at the portal before this run is retried.")
     return 0 if result == "DONE" and verdict.status == verify.VERIFIED else 1
 
 
